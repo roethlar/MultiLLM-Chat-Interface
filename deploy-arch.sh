@@ -610,7 +610,7 @@ app.post('/api/settings/seed-prompt', async (req, res) => {
 app.get('/api/settings/seed-prompt', (req, res) => res.json({ prompt: settings.seed_prompt }));
 
 app.post('/api/generate-multi', async (req, res) => {
-    const { models, prompt, sessionId, fileData, webSearch, conversationRounds = 0, conversationMode = 'collaborative' } = req.body;
+    const { models, prompt, sessionId, fileData, webSearch, enableConsensus = true, conversationRounds = 0, conversationMode = 'collaborative' } = req.body;
     if (!models.length) return res.status(400).json({ error: 'No models selected' });
 
     await saveChatMessage(sessionId, 'user', prompt, null, null, fileData?.filename);
@@ -656,7 +656,7 @@ ${conversationHistory.slice(-4).map(h => `${h.model}: ${h.response.substring(0, 
         }
         
         // Generate consensus if multiple models responded successfully
-        if (results.length >= 2) {
+        if (enableConsensus && results.length >= 2) {
             const successful = results.filter(r => !r.error);
             if (successful.length >= 2) {
                 const consensusPrompt = `Create a consensus summary of the entire conversation and final thoughts on: ${prompt}`;
@@ -750,12 +750,16 @@ cat > public/index.html << 'EOF'
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; height: 100vh; overflow: hidden; }
         .container { display: flex; height: 100vh; }
-        .sidebar { width: 300px; background: #111; border-right: 1px solid #333; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .sidebar { width: 300px; background: #111; border-right: 1px solid #333; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: #333 #111; }
+        .sidebar::-webkit-scrollbar { width: 8px; }
+        .sidebar::-webkit-scrollbar-track { background: #111; }
+        .sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: #555; }
         .sidebar h2 { color: #fff; margin-bottom: 20px; font-size: 18px; }
         .sidebar section { margin-bottom: 30px; }
-        .host-input { display: flex; gap: 10px; margin-bottom: 10px; }
-        .host-input input { flex: 1; padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; }
-        .host-input button { padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
+        .host-input { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .host-input input { flex: 1; min-width: 120px; padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; }
+        .host-input button { padding: 8px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
         .host-input button:hover { background: #1d4ed8; }
         .host-input button#historyToggle { background: #6b7280; }
         .host-input button#historyToggle:hover { background: #4b5563; }
@@ -789,6 +793,8 @@ cat > public/index.html << 'EOF'
         .conversation-section select { margin-bottom: 8px; }
         .web-search-section label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
         .web-search-section input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+        .consensus-section label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+        .consensus-section input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
         .round-indicator { display: inline-block; padding: 2px 8px; background: #2563eb; color: white; border-radius: 4px; font-size: 11px; margin-left: 8px; }
         .conversation-flow { background: rgba(37, 99, 235, 0.1); border: 1px solid #2563eb; border-radius: 6px; padding: 8px; margin-bottom: 8px; font-size: 12px; color: #60a5fa; }
         .main { flex: 1; display: flex; flex-direction: column; }
@@ -922,6 +928,13 @@ cat > public/index.html << 'EOF'
                     <span>Enable Internet Access</span>
                 </label>
             </section>
+            <section class="consensus-section">
+                <h2>Consensus Generation</h2>
+                <label>
+                    <input type="checkbox" id="enableConsensus" checked>
+                    <span>Generate Consensus Response</span>
+                </label>
+            </section>
             <div class="selected-models">
                 <h3>Active Models</h3>
                 <div id="selectedModels"></div>
@@ -999,6 +1012,7 @@ cat > public/index.html << 'EOF'
                             sessionId: currentSessionId, 
                             fileData: attachedFile?.file, 
                             webSearch: document.getElementById('enableWebSearch').checked,
+                            enableConsensus: document.getElementById('enableConsensus').checked,
                             conversationRounds,
                             conversationMode
                         })
@@ -1054,6 +1068,7 @@ cat > public/index.html << 'EOF'
                             sessionId: currentSessionId, 
                             fileData: attachedFile?.file, 
                             webSearch: document.getElementById('enableWebSearch').checked,
+                            enableConsensus: document.getElementById('enableConsensus').checked,
                             conversationRounds,
                             conversationMode
                         })
@@ -1079,7 +1094,7 @@ cat > public/index.html << 'EOF'
         function getContext() { return Array.from(document.querySelectorAll('.message')).slice(0, -1).map(m => `${m.classList.contains('user') ? 'user' : 'assistant'}: ${m.querySelector('.message-content').textContent}`).join('\n'); }
 
         async function loadInitialHosts() { try { hosts = await (await fetch('/api/hosts')).json(); renderHosts(); await updateModels(); } catch (e) { console.error(e); } }
-        async function addHost() { try { const url = document.getElementById('hostInput').value.trim(); if (!url) return; await fetch('/api/hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }); document.getElementById('hostInput').value = ''; await loadInitialHosts(); } catch (e) { alert(e.message); } }
+        async function addHost() { try { const url = document.getElementById('hostInput').value.trim(); if (!url) return; const response = await fetch('/api/hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }); if (!response.ok) { const error = await response.json(); throw new Error(error.error || 'Failed to add host'); } document.getElementById('hostInput').value = ''; await loadInitialHosts(); } catch (e) { alert(e.message); } }
         
         async function toggleHostHistory() {
             const historyDiv = document.getElementById('hostHistory');
@@ -1139,8 +1154,8 @@ cat > public/index.html << 'EOF'
         async function updateModels() { try { models = await (await fetch('/api/models')).json(); renderModels(); } catch (e) { console.error(e); } }
         function toggleModel(name, host) { selectedModels = selectedModels.some(m => m.name === name && m.host === host) ? selectedModels.filter(m => !(m.name === name && m.host === host)) : [...selectedModels, { name, host }]; renderSelectedModels(); renderModels(); }
         function handleNewSession() { currentSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; document.getElementById('chatMessages').innerHTML = ''; document.getElementById('sessionSelect').value = ''; removeFile(); }
-        async function loadSession() { const id = document.getElementById('sessionSelect').value; if (!id) return handleNewSession(); currentSessionId = id; try { document.getElementById('chatMessages').innerHTML = ''; (await fetch(`/api/chats/${id}`)).json().forEach(m => addMessageToUI(m.role, m.content, m)); } catch (e) { alert(e.message); } }
-        async function loadSessionList() { try { const select = document.getElementById('sessionSelect'); const current = select.value; select.innerHTML = '<option value="">New Session</option>'; (await fetch('/api/chats')).json().forEach(s => { const o = document.createElement('option'); o.value = s.session_id; o.textContent = new Date(s.last_message).toLocaleString(); select.appendChild(o); }); if (current) select.value = current; } catch (e) { console.error(e); } }
+        async function loadSession() { const id = document.getElementById('sessionSelect').value; if (!id) return handleNewSession(); currentSessionId = id; try { document.getElementById('chatMessages').innerHTML = ''; const messages = await (await fetch(`/api/chats/${id}`)).json(); messages.forEach(m => addMessageToUI(m.role, m.content, m)); } catch (e) { alert(e.message); } }
+        async function loadSessionList() { try { const select = document.getElementById('sessionSelect'); const current = select.value; select.innerHTML = '<option value="">New Session</option>'; const sessions = await (await fetch('/api/chats')).json(); sessions.forEach(s => { const o = document.createElement('option'); o.value = s.session_id; o.textContent = new Date(s.last_message).toLocaleString(); select.appendChild(o); }); if (current) select.value = current; } catch (e) { console.error(e); } }
         async function handleFileSelect(e) { const file = e.target.files[0]; if (!file || file.size > 50 * 1024 * 1024) { if (file) alert('Max 50MB'); e.target.value = ''; return; } const formData = new FormData(); formData.append('file', file); document.getElementById('fileName').textContent = 'Uploading...'; document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(1) + 'KB'; document.getElementById('fileAttachment').style.display = 'flex'; try { const r = await fetch('/api/upload', { method: 'POST', body: formData }); if (!r.ok) throw await r.json(); attachedFile = await r.json(); document.getElementById('fileName').textContent = attachedFile.file.filename + (attachedFile.file.type === 'image' ? ' 🖼️' : ' 📄'); document.getElementById('messageInput').focus(); } catch (e) { alert(e.error || e.message); removeFile(); } finally { e.target.value = ''; } }
         function removeFile() { attachedFile = null; document.getElementById('fileInput').value = ''; document.getElementById('fileAttachment').style.display = 'none'; }
         async function loadSeedPrompt() { try { document.getElementById('seedPromptInput').value = (await (await fetch('/api/settings/seed-prompt')).json()).prompt; } catch (e) { console.error(e); } }

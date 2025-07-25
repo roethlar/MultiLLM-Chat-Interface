@@ -589,7 +589,7 @@ app.get('/api/models', async (req, res) => {
 });
 
 app.post('/api/generate-multi', upload.single('file'), async (req, res) => {
-    const { models: selectedModels, prompt, sessionId, webSearch, conversationRounds, conversationMode } = req.body;
+    const { models: selectedModels, prompt, sessionId, webSearch, enableConsensus = true, conversationRounds, conversationMode } = req.body;
     const models = JSON.parse(selectedModels);
     
     let fileData = null;
@@ -668,7 +668,7 @@ ${conversationHistory.slice(-4).map(h => `${h.model}: ${h.response.substring(0, 
     }
 
     // Generate consensus if multiple models responded successfully
-    if (results.length >= 2) {
+    if (enableConsensus && results.length >= 2) {
         const successful = results.filter(r => !r.error);
         if (successful.length >= 2) {
             const consensusPrompt = conversationRounds > 0 ? 
@@ -777,12 +777,16 @@ create_frontend() {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; background: #0a0a0a; color: #e0e0e0; height: 100vh; overflow: hidden; }
         .container { display: flex; height: 100vh; }
-        .sidebar { width: 300px; background: #111; border-right: 1px solid #333; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
+        .sidebar { width: 300px; background: #111; border-right: 1px solid #333; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; scrollbar-color: #333 #111; }
+        .sidebar::-webkit-scrollbar { width: 8px; }
+        .sidebar::-webkit-scrollbar-track { background: #111; }
+        .sidebar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: #555; }
         .sidebar h2 { color: #fff; margin-bottom: 20px; font-size: 18px; }
         .sidebar section { margin-bottom: 30px; }
-        .host-input { display: flex; gap: 10px; margin-bottom: 10px; }
-        .host-input input { flex: 1; padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; }
-        .host-input button { padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
+        .host-input { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+        .host-input input { flex: 1; min-width: 120px; padding: 8px 12px; background: #1a1a1a; border: 1px solid #333; color: #e0e0e0; border-radius: 4px; }
+        .host-input button { padding: 8px 12px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; transition: background 0.2s; flex-shrink: 0; }
         .host-input button:hover { background: #1d4ed8; }
         .host-input button#historyToggle { background: #6b7280; }
         .host-input button#historyToggle:hover { background: #4b5563; }
@@ -816,6 +820,8 @@ create_frontend() {
         .seed-prompt-section button:hover { background: #047857; }
         .web-search-section { display: flex; align-items: center; gap: 10px; }
         .web-search-section input[type="checkbox"] { transform: scale(1.2); }
+        .consensus-section label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
+        .consensus-section input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
         .conversation-controls { margin-bottom: 20px; }
         .conversation-controls h3 { color: #fff; margin-bottom: 10px; font-size: 16px; }
         .conversation-row { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
@@ -905,6 +911,13 @@ create_frontend() {
                 <label>
                     <input type="checkbox" id="enableWebSearch">
                     Enable DuckDuckGo search
+                </label>
+            </section>
+            <section class="consensus-section">
+                <h2>Consensus Generation</h2>
+                <label>
+                    <input type="checkbox" id="enableConsensus" checked>
+                    <span>Generate Consensus Response</span>
                 </label>
             </section>
             <section class="conversation-controls">
@@ -1032,6 +1045,7 @@ create_frontend() {
                             sessionId: currentSessionId, 
                             fileData: attachedFile?.file, 
                             webSearch: document.getElementById('enableWebSearch').checked,
+                            enableConsensus: document.getElementById('enableConsensus').checked,
                             conversationRounds,
                             conversationMode
                         })
@@ -1087,6 +1101,7 @@ create_frontend() {
                             sessionId: currentSessionId, 
                             fileData: attachedFile?.file, 
                             webSearch: document.getElementById('enableWebSearch').checked,
+                            enableConsensus: document.getElementById('enableConsensus').checked,
                             conversationRounds,
                             conversationMode
                         })
@@ -1112,7 +1127,7 @@ create_frontend() {
         function getContext() { return Array.from(document.querySelectorAll('.message')).slice(0, -1).map(m => `${m.classList.contains('user') ? 'user' : 'assistant'}: ${m.querySelector('.message-content').textContent}`).join('\n'); }
 
         async function loadInitialHosts() { try { hosts = await (await fetch('/api/hosts')).json(); renderHosts(); await updateModels(); } catch (e) { console.error(e); } }
-        async function addHost() { try { const url = document.getElementById('hostInput').value.trim(); if (!url) return; await fetch('/api/hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }); document.getElementById('hostInput').value = ''; await loadInitialHosts(); } catch (e) { alert(e.message); } }
+        async function addHost() { try { const url = document.getElementById('hostInput').value.trim(); if (!url) return; const response = await fetch('/api/hosts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }); if (!response.ok) { const error = await response.json(); throw new Error(error.error || 'Failed to add host'); } document.getElementById('hostInput').value = ''; await loadInitialHosts(); } catch (e) { alert(e.message); } }
         
         async function toggleHostHistory() {
             const historyDiv = document.getElementById('hostHistory');
@@ -1172,8 +1187,8 @@ create_frontend() {
         async function updateModels() { try { models = await (await fetch('/api/models')).json(); renderModels(); } catch (e) { console.error(e); } }
         function toggleModel(name, host) { selectedModels = selectedModels.some(m => m.name === name && m.host === host) ? selectedModels.filter(m => !(m.name === name && m.host === host)) : [...selectedModels, { name, host }]; renderSelectedModels(); renderModels(); }
         function handleNewSession() { currentSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; document.getElementById('chatMessages').innerHTML = ''; document.getElementById('sessionSelect').value = ''; removeFile(); }
-        async function loadSession() { const id = document.getElementById('sessionSelect').value; if (!id) return handleNewSession(); currentSessionId = id; try { document.getElementById('chatMessages').innerHTML = ''; (await (await fetch(`/api/chats/${id}`)).json()).forEach(m => addMessageToUI(m.role, m.content, m)); } catch (e) { alert(e.message); } }
-        async function loadSessionList() { try { const sessions = await (await fetch('/api/sessions')).json(); const select = document.getElementById('sessionSelect'); select.innerHTML = '<option value="">New Session</option>' + sessions.map(s => `<option value="${s.session_id}">${s.session_id} (${new Date(s.last_message).toLocaleString()})</option>`).join(''); } catch (e) { console.error(e); } }
+        async function loadSession() { const id = document.getElementById('sessionSelect').value; if (!id) return handleNewSession(); currentSessionId = id; try { document.getElementById('chatMessages').innerHTML = ''; const messages = await (await fetch(`/api/chats/${id}`)).json(); messages.forEach(m => addMessageToUI(m.role, m.content, m)); } catch (e) { alert(e.message); } }
+        async function loadSessionList() { try { const sessions = await (await fetch('/api/chats')).json(); const select = document.getElementById('sessionSelect'); select.innerHTML = '<option value="">New Session</option>' + sessions.map(s => `<option value="${s.session_id}">${new Date(s.last_message).toLocaleString()}</option>`).join(''); } catch (e) { console.error(e); } }
         function handleKeyPress(event) { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); } }
         function handleFileSelect(event) { const file = event.target.files[0]; if (!file) return; if (file.size > 50 * 1024 * 1024) return alert('File too large (max 50MB)'); attachedFile = { file }; document.getElementById('fileName').textContent = file.name; document.getElementById('filePreview').style.display = 'block'; }
         function removeFile() { attachedFile = null; document.getElementById('fileInput').value = ''; document.getElementById('filePreview').style.display = 'none'; }
